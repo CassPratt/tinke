@@ -101,7 +101,72 @@ namespace Tinke
             treeSystem.LostFocus += new EventHandler(treeSystem_LostFocus);
             treeSystem.GotFocus += new EventHandler(treeSystem_LostFocus);
             keyDown = Keys.Escape;
+
+            // Crear menú contextual para el árbol de archivos
+            InitializeTreeContextMenu();
         }
+
+        private void InitializeTreeContextMenu()
+        {
+            ContextMenuStrip treeContextMenu = new ContextMenuStrip();
+
+            // Opción: Copiar nombre
+            ToolStripMenuItem copyNameItem = new ToolStripMenuItem();
+            copyNameItem.Text = "Copiar nombre";
+            copyNameItem.Click += (sender, e) =>
+            {
+                if (treeSystem.SelectedNode != null)
+                {
+                    string fileName = treeSystem.SelectedNode.Text;
+                    Clipboard.SetText(fileName);
+                }
+            };
+            treeContextMenu.Items.Add(copyNameItem);
+
+            // Opción: Copiar ruta relativa
+            ToolStripMenuItem copyPathItem = new ToolStripMenuItem();
+            copyPathItem.Text = "Copiar ruta relativa";
+            copyPathItem.Click += (sender, e) =>
+            {
+                if (treeSystem.SelectedNode != null && accion != null)
+                {
+                    try
+                    {
+                        if (accion.IDSelect < 0xF000)
+                        {
+                            sFile file = accion.Selected_File();
+                            string relativePath = accion.Get_RelativePath(file.id, "", accion.Root);
+                            Clipboard.SetText(relativePath);
+                        }
+                        else
+                        {
+                            sFolder folder = accion.Selected_Folder();
+                            string relativePath = accion.Get_RelativePath(folder.id, "", accion.Root);
+                            Clipboard.SetText(relativePath);
+                        }
+                    }
+                    catch { }
+                }
+            };
+            treeContextMenu.Items.Add(copyPathItem);
+
+            treeContextMenu.Items.Add(new ToolStripSeparator());
+
+            // Opción: Ver (igual que el botón)
+            ToolStripMenuItem viewItem = new ToolStripMenuItem();
+            viewItem.Text = "Ver";
+            viewItem.Click += (sender, e) =>
+            {
+                if (accion != null && accion.IDSelect < 0xF000)
+                {
+                    BtnSee(sender, e);
+                }
+            };
+            treeContextMenu.Items.Add(viewItem);
+
+            treeSystem.ContextMenuStrip = treeContextMenu;
+        }
+
         void Sistema_Load(object sender, EventArgs e)
         {
             string[] filesToRead = new string[1];
@@ -1106,6 +1171,9 @@ namespace Tinke
                 if (!isMono)
                     debug.Add_Text(sb.ToString());
                 sb.Length = 0;
+
+                // Ejecutar la misma acción que el botón "Ver"
+                BtnSee(sender, e);
             }
         }
 

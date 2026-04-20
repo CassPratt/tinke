@@ -317,7 +317,8 @@ namespace Tinke
             this.panelObj.BackColor = System.Drawing.Color.Transparent;
             this.panelObj.Location = new System.Drawing.Point(649, 25);
             this.panelObj.Name = "panelObj";
-            this.panelObj.Size = new System.Drawing.Size(515, 515);
+            this.panelObj.Size = new System.Drawing.Size(515, 860);
+            this.panelObj.Anchor = ((System.Windows.Forms.AnchorStyles)(((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Bottom) | System.Windows.Forms.AnchorStyles.Left) | System.Windows.Forms.AnchorStyles.Right));
             this.panelObj.TabIndex = 10;
             // 
             // toolStrip2
@@ -524,7 +525,7 @@ namespace Tinke
             // 
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Inherit;
             this.BackColor = System.Drawing.SystemColors.GradientInactiveCaption;
-            this.ClientSize = new System.Drawing.Size(644, 547);
+            this.ClientSize = new System.Drawing.Size(644, 560);
             this.Controls.Add(this.label1);
             this.Controls.Add(this.btnPack);
             this.Controls.Add(this.btnSaveROM);

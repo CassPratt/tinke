@@ -108,6 +108,7 @@ Thread at GBAtemp.net: http://gbatemp.net/topic/303529-tinke-072/
  * Sonic Rush Adventure (ASCx, A3Yx, BXSx)
  * Club Penguin
  * Big Hero 6
+ * Let's Play Pet Hospitals (C2HP)
 
 ----
 
