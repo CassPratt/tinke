@@ -223,35 +223,41 @@ namespace PETHOSPITALS.Formats
         }
 
         // ============================================================
-        // PATCH 5: EyeDrop fix bundle
-        //  - Redirect slots 16/17 in the tool array from Scissor to EarDrop
-        //  - Retarget the historical EYEINFECTION row so key2 matches runtime index 23
-        //  - Fix EYEINFECTION state-machine bytes so tool slot 16 is assigned
-        //  - Additionally reuse slot 26 for INFLAMEDEAR (key2=0x16) so it
-        //    continues to receive EarDrop treatment after the change.
+        // PATCH 5 / 6: EyeDrop bundle (v2)
+        //
+        // Makes EYEINFECTION appear in-game and treatable with EarDrop.
+        // EarWax (CottonSwab) and InflamedEar (EarDrop) keep original treatments.
+        //
+        // Four writes — b1/b2 of state-machine entries are NOT touched (stay 0xFF).
+        //   1) 0x61EAC: slots 16/17 literal pool → EarDrop ptr (0x02071854)
+        //   2) 0x6FD14: entry 26 key2 0x15 → 0x16 (INFLAMEDEAR uses slot 16)
+        //   3) 0x6FD1C: entry 27 key2 0x16 → 0x17 (EYEINFECTION uses slot 27)
+        //   4) 0x70800: condition object table row 23 enable flag 0x00 → 0x01
         // ============================================================
         internal const int PATCH5_OFFSET = 0x61EAC;
-        private  static readonly byte[] PATCH5_ORIGINAL = { 0xCC, 0x17, 0x07, 0x02 }; // ptr → 0x020717CC (Scissor)
-        internal static readonly byte[] PATCH5_PATCHED  = { 0x54, 0x18, 0x07, 0x02 }; // ptr → 0x02071854 ("EarDrop")
-        private const int PATCH5_KEY2_OFFSET = 0x6FD14;
-        private const byte PATCH5_KEY2_ORIGINAL = 0x15; // historical key2 = 21
-        private const byte PATCH5_KEY2_PATCHED  = 0x17; // runtime-aligned key2 = 23
+        private  static readonly byte[] PATCH5_ORIGINAL = { 0xCC, 0x17, 0x07, 0x02 }; // ptr → Scissor
+        internal static readonly byte[] PATCH5_PATCHED  = { 0x54, 0x18, 0x07, 0x02 }; // ptr → EarDrop
 
-        // ============================================================
-        // PATCH 6: EYEINFECTION state-machine treatment fix
-        // State-machine entry for EYEINFECTION at arm9 0x6FD10:
-        //   [key1(4B)] [key2(1B)] [b1(1B)] [b2(1B)] [ext(1B)]
-        // Patch 5 aligns key2 from 0x15 (21) to 0x17 (23) so the row matches
-        // the confirmed runtime index used by EYEINFECTION in-game.
-        // b1 and b2 are at +5/+6.
-        // The EyeDrop bundle forces both returned tool bytes to 0x20 while
-        // leaving ext (+7) unchanged at its original value 0x00.
-        // ============================================================
-        internal const int PATCH6_OFFSET = 0x6FD15;                       // b1 byte of EYEINFECTION entry
+        // Entry 26 key2: INFLAMEDEAR (runtime index 0x16 = 22) uses slot 16 = EarDrop
+        private const int  PATCH5_KEY2_ENTRY26_OFFSET   = 0x6FD14;
+        private const byte PATCH5_KEY2_ENTRY26_ORIGINAL = 0x15;
+        private const byte PATCH5_KEY2_ENTRY26_PATCHED  = 0x16;
 
-        
-        internal static readonly byte[] PATCH6_ORIGINAL = { 0xFF, 0xFF }; // b1=255, b2=255 — untreatable
-        internal static readonly byte[] PATCH6_PATCHED = { 0x07, 0x07 }; // condition table fila 7 → EarDrop
+        // Entry 27 key2: EYEINFECTION (runtime index 0x17 = 23) uses slot 27 = EarDrop
+        private const int  PATCH5_KEY2_ENTRY27_OFFSET   = 0x6FD1C;
+        private const byte PATCH5_KEY2_ENTRY27_ORIGINAL = 0x16;
+        private const byte PATCH5_KEY2_ENTRY27_PATCHED  = 0x17;
+
+        // Condition object table row 23 enable flag (EYEINFECTION, arm9 0x707E8 + 0x18)
+        private const int  PATCH5_ROW23_OFFSET   = 0x70800;
+        private const byte PATCH5_ROW23_ORIGINAL = 0x00;
+        private const byte PATCH5_ROW23_PATCHED  = 0x01;
+
+        // PATCH6 is fully absorbed into Patch 5. Constants kept for API compatibility.
+        // b1/b2 are NOT modified in v2 — terminal entries (0xFF 0xFF) stay unchanged.
+        internal const int PATCH6_OFFSET = 0x6FD15;
+        internal static readonly byte[] PATCH6_ORIGINAL = { 0xFF, 0xFF };
+        internal static readonly byte[] PATCH6_PATCHED  = { 0xFF, 0xFF }; // no-op in v2
 
         // Patch 8 removed — no constants here.
 
@@ -373,26 +379,22 @@ namespace PETHOSPITALS.Formats
         public static bool IsPatched5(byte[] arm9Data)
         {
             if (arm9Data == null || arm9Data.Length < ARM9_ORIGINAL_SIZE) return false;
-            return BytesMatch(arm9Data, PATCH5_OFFSET, PATCH5_PATCHED);
+            return BytesMatch(arm9Data, PATCH5_OFFSET, PATCH5_PATCHED)
+                && arm9Data[PATCH5_KEY2_ENTRY26_OFFSET] == PATCH5_KEY2_ENTRY26_PATCHED
+                && arm9Data[PATCH5_KEY2_ENTRY27_OFFSET] == PATCH5_KEY2_ENTRY27_PATCHED
+                && arm9Data[PATCH5_ROW23_OFFSET] == PATCH5_ROW23_PATCHED;
         }
 
         public static bool IsPatched5Key2(byte[] arm9Data)
         {
             if (arm9Data == null || arm9Data.Length < ARM9_ORIGINAL_SIZE) return false;
-            return arm9Data[PATCH5_KEY2_OFFSET] == PATCH5_KEY2_PATCHED;
+            return arm9Data[PATCH5_KEY2_ENTRY26_OFFSET] == PATCH5_KEY2_ENTRY26_PATCHED;
         }
 
-        public static bool IsPatched6B1B2(byte[] arm9Data)
-        {
-            if (arm9Data == null || arm9Data.Length < ARM9_ORIGINAL_SIZE) return false;
-            return BytesMatch(arm9Data, PATCH6_OFFSET, PATCH6_PATCHED);
-        }
+        // b1/b2 are no longer modified in v2 — delegate to full bundle check.
+        public static bool IsPatched6B1B2(byte[] arm9Data) { return IsPatched5(arm9Data); }
 
-        public static bool IsPatched6(byte[] arm9Data)
-        {
-            if (arm9Data == null || arm9Data.Length < ARM9_ORIGINAL_SIZE) return false;
-            return BytesMatch(arm9Data, PATCH6_OFFSET, PATCH6_PATCHED);
-        }
+        public static bool IsPatched6(byte[] arm9Data) { return IsPatched5(arm9Data); }
 
         // ============================================================
         // PATCH 8 helpers
@@ -876,50 +878,19 @@ namespace PETHOSPITALS.Formats
         internal static void ApplyEyeDropPatch(byte[] d)
         {
             if (d == null) return;
-            // 1) Redirect slots 16/17 literal pool to EarDrop
-            CopyBytes(d, PATCH5_OFFSET, PATCH5_PATCHED);
-            // 2) Retarget condition row 7 to EarDrop and enable it
-            CopyBytes(d, 0x70630, new byte[] { 0xFC, 0x16, 0x07, 0x02 });
-            d[0x70640] = 0x01;
-            // 3) Preserve original EarWax (CottonSwab) slot while enabling EyeDrop
-            // Note: Historically we attempted to reuse slot 26 for INFLAMEDEAR by
-            // setting key2=0x16 and retargeting the slot literal pool to EarDrop.
-            // That approach broke the original Ear with wax (CottonSwab) treatment
-            // because slot 26 no longer pointed to CottonSwab resources. To avoid
-            // regressing EarWax functionality we deliberately restore/preserve the
-            // original slot26 mapping here and leave the former redirection as
-            // commented-out evidence below. This keeps EarWax and InflamedEar as
-            // in the original game; EyeInfection remains enabled via the state
-            // machine changes applied elsewhere (it may appear but be untreatable).
-            //
-            // Disabled redirection (evidence):
-            // d[0x6FD14] = 0x16; // (disabled) reuse slot26 key2 for INFLAMEDEAR
-            // CopyBytes(d, 0x61ED0, new byte[] { 0x54, 0x18, 0x07, 0x02 });
-            // Active preservation: restore original key2 for slot26 (CottonSwab)
-            d[0x6FD14] = 0x15;
-            // 5) Patch state-machine b1/b2 for EYEINFECTION
-            CopyBytes(d, PATCH6_OFFSET, PATCH6_PATCHED);
-            // 6) Patch slot 27 in ROM: set key2=0x17, b1=b2=0x07
-            d[0x6FD1C] = 0x17;
-            d[0x6FD1D] = 0x07;
-            d[0x6FD1E] = 0x07;
+            CopyBytes(d, PATCH5_OFFSET, PATCH5_PATCHED);                          // slots 16/17 → EarDrop
+            d[PATCH5_KEY2_ENTRY26_OFFSET] = PATCH5_KEY2_ENTRY26_PATCHED;          // entry 26 key2=0x16 (INFLAMEDEAR)
+            d[PATCH5_KEY2_ENTRY27_OFFSET] = PATCH5_KEY2_ENTRY27_PATCHED;          // entry 27 key2=0x17 (EYEINFECTION)
+            d[PATCH5_ROW23_OFFSET]        = PATCH5_ROW23_PATCHED;                 // condition row 23 enabled
         }
 
         private static void RevertEyeDropPatch(byte[] d)
         {
+            if (d == null) return;
             CopyBytes(d, PATCH5_OFFSET, PATCH5_ORIGINAL);
-            CopyBytes(d, 0x70630, new byte[] { 0x38, 0xD3, 0x06, 0x02 });
-            d[0x70640] = 0x00;
-            CopyBytes(d, 0x707F0, new byte[] { 0x38, 0xD3, 0x06, 0x02 });
-            d[0x70800] = 0x00;
-            CopyBytes(d, 0x707EC, new byte[] { 0x38, 0xD3, 0x06, 0x02 });
-            CopyBytes(d, 0x707F8, new byte[] { 0x00, 0x10, 0x00, 0x00 });
-            CopyBytes(d, PATCH6_OFFSET, PATCH6_ORIGINAL);
-            d[0x6FD14] = 0x15;
-            CopyBytes(d, 0x61ED0, new byte[] { 0x48, 0x18, 0x07, 0x02 });
-            d[0x6FD1C] = 0x16;
-            d[0x6FD1D] = 0xFF;
-            d[0x6FD1E] = 0xFF;
+            d[PATCH5_KEY2_ENTRY26_OFFSET] = PATCH5_KEY2_ENTRY26_ORIGINAL;
+            d[PATCH5_KEY2_ENTRY27_OFFSET] = PATCH5_KEY2_ENTRY27_ORIGINAL;
+            d[PATCH5_ROW23_OFFSET]        = PATCH5_ROW23_ORIGINAL;
         }
 
         /// <summary>
@@ -928,18 +899,12 @@ namespace PETHOSPITALS.Formats
         /// - patch6Key2: set historical key2 byte (PATCH5_KEY2_OFFSET)
         /// - patch6B1B2: set b1/b2 bytes in state-machine (PATCH6_OFFSET)
         /// </summary>
+        // patch5/patch6Key2/patch6B1B2 params kept for API compatibility; all map to the full bundle.
         public static void ApplyEyeDropPatchPartial(byte[] d, bool patch5, bool patch6Key2, bool patch6B1B2)
         {
             if (d == null) return;
-            if (patch5)
-            {
-                // Redirect slots and retarget condition row 7 to EarDrop, then enable it.
-                CopyBytes(d, PATCH5_OFFSET, PATCH5_PATCHED);
-                CopyBytes(d, 0x70630, new byte[] { 0xFC, 0x16, 0x07, 0x02 });
-                d[0x70640] = 0x01;
-            }
-            // patch6Key2 is intentionally ignored: key2 byte is no longer modified
-            if (patch6B1B2) CopyBytes(d, PATCH6_OFFSET, PATCH6_PATCHED);
+            if (patch5 || patch6Key2 || patch6B1B2)
+                ApplyEyeDropPatch(d);
         }
 
         /// <summary>
@@ -1005,6 +970,34 @@ namespace PETHOSPITALS.Formats
         }
 
         // Patch8 public wrappers removed
+
+        // ============================================================
+        // PATCH 9: Corral slot overlap fix (v2 — LCG counter)
+        //
+        // FUN_02007950 assigns moveSlot via LCG with no collision check.
+        // v2 replaces the LCG multiply + add constants with a simple +0x1000
+        // increment per call. The existing >> 12 extraction produces sequential
+        // slots 0, 1, 2, … without reading any animal struct field.
+        // ============================================================
+        private const int PATCH9_MUL_OFFSET = 0x798C;
+        private static readonly byte[] PATCH9_MUL_ORIGINAL = { 0x93, 0x01, 0x00, 0xE0 }; // MUL r0, r3, r1
+        private static readonly byte[] PATCH9_MUL_PATCHED  = { 0x01, 0x0A, 0x83, 0xE2 }; // ADD r0, r3, #0x1000
+
+        private const int PATCH9_ADD73_OFFSET = 0x7990;
+        private static readonly byte[] PATCH9_ADD73_ORIGINAL = { 0x73, 0x00, 0x80, 0xE2 }; // ADD r0, r0, #0x73
+        private static readonly byte[] PATCH9_ADD73_PATCHED  = { 0x00, 0x00, 0xA0, 0xE1 }; // MOV r0, r0 (NOP)
+
+        private const int PATCH9_ADD6000_OFFSET = 0x7994;
+        private static readonly byte[] PATCH9_ADD6000_ORIGINAL = { 0x06, 0x0A, 0x80, 0xE2 }; // ADD r0, r0, #0x6000
+        private static readonly byte[] PATCH9_ADD6000_PATCHED  = { 0x00, 0x00, 0xA0, 0xE1 }; // MOV r0, r0 (NOP)
+
+        public static bool IsPatched9(byte[] arm9Data)
+        {
+            if (arm9Data == null || arm9Data.Length < ARM9_ORIGINAL_SIZE) return false;
+            return BytesMatch(arm9Data, PATCH9_MUL_OFFSET, PATCH9_MUL_PATCHED)
+                && BytesMatch(arm9Data, PATCH9_ADD73_OFFSET, PATCH9_ADD73_PATCHED)
+                && BytesMatch(arm9Data, PATCH9_ADD6000_OFFSET, PATCH9_ADD6000_PATCHED);
+        }
     }
 
     /// <summary>
@@ -1176,16 +1169,19 @@ namespace PETHOSPITALS.Formats
                 // NOTE: do NOT auto-check patches 5/6 here — they are excluded from
                 // the automatic verification because applying them can break some
                 // ROM builds. Users may apply them separately at their own risk.
+                bool p5 = ARM9Patcher.IsEyeDropPatched(arm9Data);
                 bool p8 = ARM9Patcher.IsPatched8(arm9Data);
+                bool p9 = ARM9Patcher.IsPatched9(arm9Data);
 
                 txtLog.AppendText("Applied patches summary:\r\n");
-                txtLog.AppendText($"1) Patch 1 - Texture replacement: {(p1and2 ? "APPLIED" : "NOT applied")}\r\n");
-                txtLog.AppendText($"2) Patch 2 - guineaPig capitalization: {(p1and2 ? "APPLIED" : "NOT applied")}\r\n");
-                txtLog.AppendText($"3) Patch 3 - ANY breed/color probability: {(p3 ? "APPLIED" : "NOT applied")}\r\n");
-                txtLog.AppendText($"4) Patch 4 - Hard-mode thresholds: {(p4 ? "APPLIED" : "NOT applied")}\r\n");
-                txtLog.AppendText($"5/6) Patch 5 & 6 - EyeDrop/EarDrop bundle: SKIPPED in verification\r\n");
-                txtLog.AppendText($"8) Patch 8 - Duplicate prices: {(p8 ? "APPLIED" : "NOT applied")}\r\n");
-                txtLog.AppendText($"7) Patch 7 - Harlequin asset swap: N/A (asset swap state not checked)\r\n");
+                txtLog.AppendText("1) Patch 1 - Texture replacement: " + (p1and2 ? "APPLIED" : "NOT applied") + "\r\n");
+                txtLog.AppendText("2) Patch 2 - guineaPig capitalization: " + (p1and2 ? "APPLIED" : "NOT applied") + "\r\n");
+                txtLog.AppendText("3) Patch 3 - ANY breed/color probability: " + (p3 ? "APPLIED" : "NOT applied") + "\r\n");
+                txtLog.AppendText("4) Patch 4 - Hard-mode thresholds: " + (p4 ? "APPLIED" : "NOT applied") + "\r\n");
+                txtLog.AppendText("5/6) Patch 5 & 6 - EyeDrop/EarDrop bundle: " + (p5 ? "APPLIED" : "NOT applied") + "\r\n");
+                txtLog.AppendText("8) Patch 8 - Duplicate prices: " + (p8 ? "APPLIED" : "NOT applied") + "\r\n");
+                txtLog.AppendText("7) Patch 7 - Harlequin asset swap: N/A (asset swap state not checked)\r\n");
+                txtLog.AppendText("9) Patch 9 - Corral slot overlap fix: " + (p9 ? "APPLIED" : "NOT applied") + "\r\n");
                 txtLog.AppendText(Environment.NewLine);
             }
             catch { }

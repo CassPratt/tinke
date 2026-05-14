@@ -468,34 +468,57 @@ operation and does not rely on backup files.
 - If you need to extend or correct ranges, edit the table of ROM ranges in the
   patcher source and test on a copy of `arm9.bin`.
 
-## Patch — Corral slot overlap (not implemented)
+
+## Patch 9 — Corral slot overlap fix
 
 ### Problem
-Animals in the same corral can share the same `moveSlot` position, causing
-them to overlap visually. This occurs on initial load and after adoptions.
+Animals in the same corral can share the same visual position, causing overlap.
+Occurs specifically when adopting a new animal after one in an intermediate
+position (0 or 1) has been removed.
 
-### Why it cannot be fixed in-place
+### Root cause (confirmed with Lua runtime analysis)
 
-`FUN_02007950` (VA `0x02007950`) assigns each animal a `moveSlot` index using
-an LCG random number generator with no collision check. The correct fix would
-assign a deterministic 0-based index per animal from the corral's animal count.
+**`FUN_02007950` no es la causa del overlap.**
 
-The count field is at `(corral_base + 0x18)[0x10]`, accessible in
-`FUN_0203df2c` as `r0[0x10]` (where `r0 = corral_base + 0x18`, `r1 = animal_ptr`).
-Writing this value to `animal[0xF8]` before the count increments requires
-4 new instructions, but only 3 instruction slots are available at the
-insertion point without breaking the function's argument setup for its
-subsequent `bl FUN_02030ce4(r0=corral+0x18, r1=animal_ptr)`.
+El script `moveslot_debug.lua` confirmó en runtime que:
+- `scene[0x50]` ya es único por animal: valores 0, 1, 2 para 3 animales
+- Los nombres de spawn generados son distintos: `"moveSlot00"`, `"moveSlot11"`, `"moveSlot21"`
+- `FUN_02042AD4` no reporta colisiones de spawn points
 
-Attempts to use `animal[0x1b0]` (scene pointer) or `animal[0x4c]` from
-`FUN_02007950` at tick time were unsuccessful: `animal[0x1b0]+0x28` contains
-a pointer, not a count, and `animal[0x4c]` is not reliably set for animals
-loaded from save. No adjacent free space (≥16 bytes) was found near candidate
-injection points. ARM9 expansion is not possible (BSS zeroing constraint).
+La causa real: `FUN_02007950` es un **tick de animación**, no un inicializador de
+posición. Solo se ejecuta cuando el jugador tiene el corral en vista activa. Al
+adoptar un nuevo animal, éste se crea con su posición 3D en el origen del corral
+(0,0,0) y **permanece solapado con otros animales hasta que el tick de animación
+comienza** a moverlo a su spawn point asignado.
+
+En el restart, las posiciones 3D se restauran del save (que guardó las posiciones
+finales del último tick), por lo que los animales aparecen directamente en sus
+lugares correctos, sin la fase transitoria de solapamiento.
+
+```
+moveSlot%i%i:  scene[0x50] (0,1,2 — único) + slot (variable)
+               → los nombres son únicos → no hay colisión de destino
+               → el overlap es solo de posición INICIAL, no de destino
+```
+
+### Por qué no es implementable in-place
+
+Corregir el overlap requeriría asignar la posición 3D definitiva del animal
+**en el momento de la adopción**, antes de que el tick de animación lo haga.
+Esto implica llamar a `FUN_020078cc` (setter de posición) con las coordenadas
+del spawn point correcto inmediatamente al crear el animal. Dicha llamada necesita
+resolver el nombre del spawn (`"moveSlot%i%i"`) y buscar el objeto 3D en la
+escena activa — un proceso que requiere que la escena del corral ya esté cargada
+y que el objeto escena del animal esté inicializado, condiciones que no se
+garantizan en el flujo de adopción.
+
+No hay espacio libre en el código adyacente para inyectar esta lógica (≥16 bytes),
+y ARM9 expansion no es posible (restricción BSS).
 
 ### Observed behavior
-The overlap is cosmetic: both animals are clickable individually, and movement
-animations naturally separate them. It does not affect gameplay or saving.
+The overlap is cosmetic and transient: both animals are clickable individually,
+and the movement animation resolves the positions within seconds. It does not
+affect gameplay or saving.
 
 ## Patching Scripts & Tooling
 
